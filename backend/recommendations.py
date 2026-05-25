@@ -12,6 +12,15 @@ from backend.analytics import (
     get_merchant_frequency,
 )
 
+# Categories that are NOT controllable/avoidable spending.
+# The engine should never recommend "reduce P2P Transfer by 20%".
+NON_ACTIONABLE = {
+    "P2P Transfer", "Social", "Miscellaneous", "Credit",
+    "Family Transfer", "Self/Pass-Through Transfer",
+    "Large P2P Transfer", "Rent/Business", "Investment",
+    "Cash", "Taxes & Fines", "Government",
+}
+
 
 def generate_recommendations(df: pd.DataFrame) -> list[dict]:
     """
@@ -63,6 +72,10 @@ def _rule_high_category(category_totals: list[dict], total_spend: float) -> list
     """If a category exceeds 35% of total spend, suggest a 20% cut."""
     insights = []
     for cat in category_totals:
+        if cat["category"] in NON_ACTIONABLE:
+            continue
+        if cat["count"] < 3:
+            continue  # Need a pattern, not a one-off
         if cat["percentage"] > 35:
             reduction = cat["total"] * 0.20
             insights.append({
@@ -139,8 +152,10 @@ def _rule_subscriptions(subscriptions: list[dict]) -> list[dict]:
 def _rule_merchant_concentration(merchant_freq: list[dict], total_spend: float) -> list[dict]:
     """If a single merchant accounts for >15% of total spend."""
     insights = []
-    for m in merchant_freq:
+    for m in merchant_freq[:10]:  # Only check top 10 merchants
         pct = (m["total"] / total_spend) * 100
+        if m["count"] < 3:
+            continue  # Need a pattern, not a one-off
         if pct > 15:
             insights.append({
                 "title": f"High spending at {m['merchant']}",
@@ -172,6 +187,8 @@ def _rule_outliers(outliers: list[dict]) -> list[dict]:
     """Flag outlier transactions that are unusually high for their category."""
     insights = []
     for o in outliers:
+        if o["category"] in NON_ACTIONABLE:
+            continue
         insights.append({
             "title": f"Unusual {o['category']} charge: ₹{o['amount']:,.0f}",
             "description": (
@@ -188,26 +205,27 @@ def _rule_outliers(outliers: list[dict]) -> list[dict]:
 
 
 def _rule_travel_optimization(df: pd.DataFrame, category_totals: list[dict]) -> list[dict]:
-    """If Travel category exists and average trip cost is high, suggest alternatives."""
+    """If Travel/Transport has enough trips with high average cost, suggest alternatives."""
     insights = []
-    travel_cats = [c for c in category_totals if c["category"].lower() == "travel"]
+    travel_cats = [c for c in category_totals if c["category"].lower() in ("travel", "transport")]
 
     if travel_cats:
         travel = travel_cats[0]
         avg_trip = travel["total"] / max(travel["count"], 1)
 
-        if avg_trip > 150:
-            metro_savings = round((avg_trip - 40) * travel["count"] * 0.5, 2)  # Assume 50% of trips switchable
+        # Only trigger for genuine commute patterns (3+ trips, avg > ₹150)
+        if avg_trip > 150 and travel["count"] >= 3:
+            metro_savings = round((avg_trip - 40) * travel["count"] * 0.5, 2)
             insights.append({
-                "title": "Consider public transport for daily commute",
+                "title": "Consider public transport for regular commute",
                 "description": (
-                    f"Your average travel cost is ₹{avg_trip:,.0f}/trip across {travel['count']} trips. "
-                    f"A Metro card (~₹40/trip) for half your trips could save you."
+                    f"You took {travel['count']} trips averaging ₹{avg_trip:,.0f}/trip. "
+                    f"Switching half to Metro/bus (~₹40/trip) could save significantly."
                 ),
                 "savings_estimate": metro_savings,
                 "icon": "Train",
                 "priority": "medium",
-                "category": "Travel",
+                "category": travel["category"],
             })
     return insights
 
@@ -239,12 +257,14 @@ def _rule_daily_budget(df: pd.DataFrame, total_spend: float) -> list[dict]:
 def _rule_savings_targets(category_totals: list[dict], total_spend: float) -> list[dict]:
     """Show what 10% and 20% savings look like in concrete terms."""
     insights = []
+    # Only use actionable categories for savings targets
+    actionable_cats = [c for c in category_totals if c["category"] not in NON_ACTIONABLE]
 
     for target_pct in [10, 20]:
         target_amount = total_spend * (target_pct / 100)
 
-        # Suggest cuts from top categories proportionally
-        top_cats = category_totals[:3]  # Top 3 categories
+        # Suggest cuts from top actionable categories
+        top_cats = actionable_cats[:3]
         cuts = []
         remaining = target_amount
         for cat in top_cats:
