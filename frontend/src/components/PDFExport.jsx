@@ -1,20 +1,23 @@
 import { useState, useRef } from 'react';
-import { LuFileDown } from 'react-icons/lu';
+import { LuFileDown, LuSparkles } from 'react-icons/lu';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { formatCurrency, formatPercent, formatDateFull } from '../utils/formatters';
+import { getAIReport } from '../services/api';
 
 export default function PDFExport({ analytics, recommendations }) {
   const [exporting, setExporting] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
   const reportRef = useRef(null);
+  const aiReportRef = useRef(null);
 
+  // ─── Regular Report Export ───────────────────────────────
   const handleExport = async () => {
     setExporting(true);
     try {
       const el = reportRef.current;
       if (!el) return;
 
-      // Temporarily show the hidden report div
       el.style.display = 'block';
 
       const canvas = await html2canvas(el, {
@@ -53,6 +56,103 @@ export default function PDFExport({ analytics, recommendations }) {
     }
   };
 
+  // ─── AI Report Export ────────────────────────────────────
+  const handleAIExport = async () => {
+    setAiLoading(true);
+    try {
+      const { report } = await getAIReport();
+      await renderAIReport(report);
+    } catch (err) {
+      console.error('AI report failed:', err);
+      alert('AI report generation failed. Please try again.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const renderAIReport = async (markdown) => {
+    const el = aiReportRef.current;
+    if (!el) return;
+
+    // Convert markdown to styled HTML
+    el.innerHTML = buildAIReportHTML(markdown);
+    el.style.display = 'block';
+
+    // Wait for fonts/rendering
+    await new Promise(r => setTimeout(r, 300));
+
+    const canvas = await html2canvas(el, {
+      scale: 2,
+      backgroundColor: '#0f1329',
+      useCORS: true,
+      logging: false,
+      width: el.scrollWidth,
+      height: el.scrollHeight,
+    });
+
+    el.style.display = 'none';
+
+    const imgData = canvas.toDataURL('image/png');
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    let position = 0;
+    if (pdfHeight <= pageHeight) {
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+    } else {
+      while (position < pdfHeight) {
+        pdf.addImage(imgData, 'PNG', 0, -position, pdfWidth, pdfHeight);
+        position += pageHeight;
+        if (position < pdfHeight) pdf.addPage();
+      }
+    }
+
+    pdf.save('SpendSmart_AI_Report.pdf');
+  };
+
+  const buildAIReportHTML = (markdown) => {
+    // Simple markdown → HTML conversion for the report
+    let html = markdown
+      // Headers
+      .replace(/^### (.*$)/gm, '<h3 style="font-size:15px;font-weight:700;color:#7b2ff7;margin:16px 0 8px;">$1</h3>')
+      .replace(/^## (.*$)/gm, '<h2 style="font-size:18px;font-weight:700;color:#00d4ff;margin:24px 0 10px;padding-bottom:6px;border-bottom:1px solid rgba(0,212,255,0.15);">$1</h2>')
+      .replace(/^# (.*$)/gm, '<h1 style="font-size:24px;font-weight:800;background:linear-gradient(135deg,#00d4ff,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px;">$1</h1>')
+      // Bold
+      .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#f0f0f5;font-weight:600;">$1</strong>')
+      // Bullets
+      .replace(/^- (.*$)/gm, '<div style="display:flex;gap:8px;margin:4px 0 4px 12px;"><span style="color:#00d4ff;flex-shrink:0;">•</span><span>$1</span></div>')
+      // Numbered lists
+      .replace(/^(\d+)\. (.*$)/gm, '<div style="display:flex;gap:8px;margin:6px 0 6px 12px;"><span style="color:#00e68a;font-weight:700;flex-shrink:0;">$1.</span><span>$2</span></div>')
+      // Paragraphs (double newline)
+      .replace(/\n\n/g, '</p><p style="margin:8px 0;line-height:1.7;color:#c0c4d6;">')
+      // Single newlines (after list processing)
+      .replace(/\n/g, '<br/>');
+
+    return `
+      <div style="text-align:center;margin-bottom:28px;padding-bottom:20px;border-bottom:2px solid rgba(0,212,255,0.2);">
+        <h1 style="font-size:28px;font-weight:800;background:linear-gradient(135deg,#00d4ff,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px;">
+          🤖 SpendSmart AI Report
+        </h1>
+        <p style="color:#8b8fa3;font-size:13px;">
+          AI-Powered Financial Analysis • ${formatDateFull(analytics.date_range?.start)} — ${formatDateFull(analytics.date_range?.end)}
+        </p>
+        <p style="color:#5a5e73;font-size:11px;margin-top:4px;">
+          Powered by Llama 3.3 70B via Groq
+        </p>
+      </div>
+
+      <div style="line-height:1.7;color:#c0c4d6;font-size:14px;">
+        <p style="margin:8px 0;line-height:1.7;color:#c0c4d6;">${html}</p>
+      </div>
+
+      <div style="text-align:center;padding-top:20px;margin-top:24px;border-top:1px solid rgba(255,255,255,0.08);font-size:11px;color:#5a5e73;">
+        Generated by SpendSmart AI • ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+      </div>
+    `;
+  };
+
   if (!analytics) return null;
 
   const topCategory = analytics.category_totals[0];
@@ -69,17 +169,33 @@ export default function PDFExport({ analytics, recommendations }) {
 
   return (
     <>
-      <button
-        className="btn-primary"
-        onClick={handleExport}
-        disabled={exporting}
-        style={{ fontSize: '0.8rem', padding: '0.5rem 1rem' }}
-      >
-        <LuFileDown />
-        {exporting ? 'Generating...' : 'Export PDF'}
-      </button>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button
+          className="btn-primary"
+          onClick={handleExport}
+          disabled={exporting || aiLoading}
+          style={{ fontSize: '0.8rem', padding: '0.5rem 1rem' }}
+        >
+          <LuFileDown />
+          {exporting ? 'Generating...' : 'Export PDF'}
+        </button>
+        <button
+          className="btn-primary"
+          onClick={handleAIExport}
+          disabled={exporting || aiLoading}
+          style={{
+            fontSize: '0.8rem',
+            padding: '0.5rem 1rem',
+            background: 'linear-gradient(135deg, #7b2ff7, #f72f8e)',
+            border: 'none',
+          }}
+        >
+          <LuSparkles />
+          {aiLoading ? 'AI Analyzing...' : 'AI Report ✨'}
+        </button>
+      </div>
 
-      {/* Hidden report layout — only rendered into the PDF */}
+      {/* Hidden regular report layout */}
       <div
         ref={reportRef}
         style={{
@@ -286,6 +402,22 @@ export default function PDFExport({ analytics, recommendations }) {
           Generated by SpendSmart • {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
         </div>
       </div>
+
+      {/* Hidden AI report container */}
+      <div
+        ref={aiReportRef}
+        style={{
+          display: 'none',
+          position: 'absolute',
+          left: '-9999px',
+          top: 0,
+          width: '800px',
+          fontFamily: 'Inter, sans-serif',
+          color: '#f0f0f5',
+          background: '#0f1329',
+          padding: '40px',
+        }}
+      />
     </>
   );
 }

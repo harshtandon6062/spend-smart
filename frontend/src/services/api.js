@@ -55,3 +55,12 @@ export const simulate = async (reductions) => {
   const res = await api.post('/api/simulate', { reductions });
   return res.data;
 };
+
+/**
+ * Generate an AI-powered personalized financial report via Groq LLM.
+ * @returns {Promise<{report: string}>} - Markdown-formatted report
+ */
+export const getAIReport = async () => {
+  const res = await api.get('/api/report/ai', { timeout: 30000 });
+  return res.data;
+};

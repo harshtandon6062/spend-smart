@@ -5,6 +5,10 @@ Provides CSV upload, analytics, recommendations, and what-if simulation.
 
 import os
 import tempfile
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env for GROQ_API_KEY etc.
+
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
@@ -204,3 +208,25 @@ def run_simulation(req: SimulationRequest):
 
     result = simulate_savings(df, req.reductions)
     return SimulationResponse(**result)
+
+
+@app.get("/api/report/ai")
+async def get_ai_report():
+    """
+    Generate a personalized financial narrative report using Groq LLM.
+    Requires data to be loaded first (via upload or sample).
+    """
+    from backend.ai_report import generate_ai_report
+
+    df = _get_df()
+    analytics = get_full_analytics(df)
+    recommendations = generate_recommendations(df)
+
+    try:
+        report_markdown = await generate_ai_report(analytics, recommendations)
+        return {"report": report_markdown}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI report generation failed: {str(e)}"
+        )
