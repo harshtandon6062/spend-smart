@@ -1,0 +1,40 @@
+4. "Spend Smart" – Personalized Saving Suggestion Engine
+Problem Statement
+Analyze 30 days of spends and generate specific, personalized savings suggestions with estimated monthly impact.
+Build Requirements
+
+Upload CSV of transactions
+Categorize expenses and compute totals
+Detect overspending patterns and outliers
+Generate actionable recommendations with savings estimates
+
+User Story
+"I want personalized tips so I can save at least 10–20% next month."
+Sample CSV (Columns)
+Date, Merchant, Amount, Category
+2026-01-12, Zomato, 380, Food
+2026-01-14, Uber, 240, Travel
+Insight Examples
+
+"Reduce Food ordering by 20% → Save ₹800/month"
+"Travel spikes on weekends → Consider Metro card"
+"Subscriptions: cancel unused services (₹X/month)"
+
+Technical Expectations
+
+CSV parsing and validation
+Charts for category spends
+Rule-based recommendation engine
+
+Stretch Goals
+
+What-if savings simulator (sliders)
+Monthly budgeting feature
+Export PDF summary
+
+Scoring Criteria
+
+Insight quality — 40%
+Visualization — 30%
+Logic — 20%
+Code quality — 10%
